@@ -30,6 +30,7 @@ Thumbs.db
 # Test outputs and analysis data (generated, not source code)
 test_output.csv
 *.csv
+gemini_mention_analysis.txt
 
 # Claude Code local config (sessions, history, local settings)
 .claude/
