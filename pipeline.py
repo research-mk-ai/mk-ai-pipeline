@@ -40,6 +40,7 @@ DRY_RUN_LIMIT    = 6
 QUERY_SET_FILTER = ""        # empty: load ALL queries with MVP=ANO
 SKIP_LOGGED      = True   # True → skip Query_IDs already present in Log sheet
 RETRY_QIDS_FILE  = ""     # path to file with one Query_ID per line; if set, overrides all other query filters
+INCLUDE_NON_MVP  = False  # True → also process queries with Prioritne MVP != "ANO"
 
 TEST_QUERIES = [
     ("Q001", "najlepší kočík do mesta 2026"),
@@ -291,7 +292,9 @@ def load_queries(
     for row in rows[1:]:
         if not row[0]:
             continue
-        if len(row) <= MVP_COL or row[MVP_COL].strip().upper() != "ANO":
+        if len(row) <= MVP_COL:
+            continue
+        if not INCLUDE_NON_MVP and row[MVP_COL].strip().upper() != "ANO":
             continue
         if query_set_filter:
             row_set = row[QSET_COL].strip() if len(row) > QSET_COL else ""
