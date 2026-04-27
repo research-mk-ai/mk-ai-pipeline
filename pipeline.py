@@ -152,14 +152,24 @@ def _citations_openai(response) -> list[str]:
 
 
 def _citations_gemini(response) -> list[str]:
-    urls = []
+    """Return grounding sources from Gemini response.
+
+    chunk.web.title  = real domain ('modrykonik.sk')   — used for MK detection
+    chunk.web.uri    = Vertex AI redirect URL           — kept for debugging only
+    Each entry is formatted as 'domain_title | redirect_uri' so both are
+    preserved in raw files while MK_DOMAIN_PAT still matches on the title part.
+    """
+    entries = []
     for candidate in getattr(response, "candidates", []) or []:
         gm = getattr(candidate, "grounding_metadata", None)
         for chunk in getattr(gm, "grounding_chunks", []) or []:
-            uri = getattr(getattr(chunk, "web", None), "uri", None)
-            if uri:
-                urls.append(uri)
-    return list(dict.fromkeys(urls))
+            web = getattr(chunk, "web", None)
+            if web:
+                title = getattr(web, "title", None)
+                uri   = getattr(web, "uri",   None)
+                if title:
+                    entries.append(f"{title} | {uri}" if uri else title)
+    return list(dict.fromkeys(entries))
 
 
 def _citations_perplexity(response) -> list[str]:
@@ -203,6 +213,8 @@ def save_raw_output(
         f"mk_position_raw: {mk_pos_raw}",
         "",
         "=== CITATIONS ===",
+        # Gemini entries: "domain_title | redirect_uri" (title used for MK detection, URI kept for debugging)
+        # All other models: plain URLs
         *citations,
         "",
         "=== RESPONSE ===",
