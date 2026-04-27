@@ -39,6 +39,7 @@ DRY_RUN          = False  # True  → limit to first DRY_RUN_LIMIT queries
 DRY_RUN_LIMIT    = 6
 QUERY_SET_FILTER = ""        # empty: load ALL queries with MVP=ANO
 SKIP_LOGGED      = True   # True → skip Query_IDs already present in Log sheet
+RETRY_QIDS_FILE  = ""     # path to file with one Query_ID per line; if set, overrides all other query filters
 
 TEST_QUERIES = [
     ("Q001", "najlepší kočík do mesta 2026"),
@@ -502,7 +503,12 @@ print("Connecting to Google Sheets...", end=" ", flush=True)
 try:
     sh, ws  = setup_sheets()
     log_num = get_starting_log_num(ws)
-    if TEST_MODE:
+    if RETRY_QIDS_FILE:
+        retry_ids    = {l.strip() for l in open(RETRY_QIDS_FILE) if l.strip()}
+        all_queries  = load_queries(sh, use_google_query=False, query_set_filter="")
+        queries_data = [(qid, q) for qid, q in all_queries if qid in retry_ids]
+        mode_label   = f"RETRY ({len(queries_data)} qids from {RETRY_QIDS_FILE})"
+    elif TEST_MODE:
         queries_data = TEST_QUERIES
         mode_label   = "TEST MODE"
     elif SERP_ONLY:
@@ -516,7 +522,7 @@ try:
                                     limit=DRY_RUN_LIMIT if DRY_RUN else 0)
         mode_label   = "FULL RUN (col D)"
 
-    if SKIP_LOGGED and not TEST_MODE:
+    if SKIP_LOGGED and not TEST_MODE and not RETRY_QIDS_FILE:
         already_logged  = get_logged_query_ids(ws)
         before          = len(queries_data)
         queries_data    = [(qid, q) for qid, q in queries_data if qid not in already_logged]
