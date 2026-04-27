@@ -144,11 +144,29 @@ def check_mk_citation(citations: list[str], exc: Exception | None) -> str:
 _URL_RE = re.compile(r"https://[^\s\)\"'>\]]+")
 
 def _citations_openai(response) -> list[str]:
-    # Responses API doesn't surface structured citations for web_search_preview;
-    # extract all https:// URLs from the response text instead.
-    text = response.output_text or ""
-    urls = _URL_RE.findall(text)
-    return list(dict.fromkeys(urls))   # deduplicate, preserve order
+    """Extract citation URLs from OpenAI Responses API.
+
+    Primary source: structured url_citation annotations on response output.
+    These contain only URLs that were actually grounded as citations.
+
+    Fallback: regex over response.output_text. Used only if annotations are
+    missing (defensive — should not happen with web_search_preview tool).
+    """
+    urls = []
+    for output_item in getattr(response, "output", []) or []:
+        for content_part in getattr(output_item, "content", []) or []:
+            for annotation in getattr(content_part, "annotations", []) or []:
+                if getattr(annotation, "type", None) == "url_citation":
+                    url = getattr(annotation, "url", None)
+                    if url:
+                        urls.append(url)
+
+    # Fallback to regex if annotations returned nothing but we have text
+    if not urls:
+        text = response.output_text or ""
+        urls = _URL_RE.findall(text)
+
+    return list(dict.fromkeys(urls))
 
 
 def _citations_gemini(response) -> list[str]:
