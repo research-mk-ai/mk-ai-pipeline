@@ -37,7 +37,7 @@ TEST_MODE        = False  # True  → use TEST_QUERIES below instead of Sheets
 SERP_ONLY        = False  # True  → only call_serp(); reads col E (Google query SK)
 DRY_RUN          = False  # True  → limit to first DRY_RUN_LIMIT queries
 DRY_RUN_LIMIT    = 6
-QUERY_SET_FILTER = "experiment_structured_vs_unstructured_2026Q2"
+QUERY_SET_FILTER = ""        # empty: load ALL queries with MVP=ANO
 SKIP_LOGGED      = True   # True → skip Query_IDs already present in Log sheet
 
 TEST_QUERIES = [
