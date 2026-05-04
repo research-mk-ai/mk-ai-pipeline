@@ -32,5 +32,9 @@ test_output.csv
 *.csv
 gemini_mention_analysis.txt
 
+# One-off retry/test query list files (kept locally for reference, not tracked)
+*_qids.txt
+*_test_batch.txt
+
 # Claude Code local config (sessions, history, local settings)
 .claude/
