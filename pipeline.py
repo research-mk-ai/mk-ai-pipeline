@@ -10,6 +10,7 @@ for pkg in ["python-dotenv", "openai", "google-genai", "requests", "gspread", "g
 import os
 import csv
 import re
+import time
 import datetime
 import pathlib
 from collections import Counter
@@ -432,18 +433,37 @@ def _citations_claude(response) -> list[str]:
 
 
 def call_claude(query: str) -> CallResult:
-    from anthropic import Anthropic
+    from anthropic import Anthropic, RateLimitError
     client = Anthropic(api_key=ANTHROPIC_API_KEY)
-    response = client.messages.create(
-        model="claude-sonnet-4-6",
-        max_tokens=4096,
-        tools=[{
-            "type": "web_search_20250305",
-            "name": "web_search",
-            "max_uses": 5,
-        }],
-        messages=[{"role": "user", "content": query}],
-    )
+
+    last_response = None
+    for attempt in range(3):
+        try:
+            response = client.messages.create(
+                model="claude-sonnet-4-6",
+                max_tokens=4096,
+                tools=[{
+                    "type": "web_search_20250305",
+                    "name": "web_search",
+                    "max_uses": 5,
+                }],
+                messages=[{"role": "user", "content": query}],
+            )
+            last_response = response
+            break
+        except RateLimitError as e:
+            if attempt >= 2:
+                raise
+            retry_after = 65
+            try:
+                if hasattr(e, "response") and e.response and "retry-after" in e.response.headers:
+                    retry_after = max(int(e.response.headers["retry-after"]), 60)
+            except Exception:
+                pass
+            print(f"  Rate limited, waiting {retry_after}s before retry {attempt + 2}/3...")
+            time.sleep(retry_after)
+
+    response = last_response
 
     text_parts = []
     for block in response.content:
