@@ -4,7 +4,7 @@ import sys
 def install(pkg):
     subprocess.check_call([sys.executable, "-m", "pip", "install", "-q", pkg])
 
-for pkg in ["python-dotenv", "openai", "google-genai", "requests", "gspread", "google-search-results"]:
+for pkg in ["python-dotenv", "openai", "google-genai", "requests", "gspread", "google-search-results", "anthropic"]:
     install(pkg)
 
 import os
@@ -24,6 +24,7 @@ OPENAI_API_KEY      = os.getenv("OPENAI_API_KEY")
 GEMINI_API_KEY      = os.getenv("GEMINI_API_KEY")
 PERPLEXITY_API_KEY  = os.getenv("PERPLEXITY_API_KEY")
 SERPAPI_KEY         = os.getenv("SERPAPI_KEY")
+ANTHROPIC_API_KEY   = os.getenv("ANTHROPIC_API_KEY")
 
 SPREADSHEET_ID       = "1ietJCNHqVp6wYyUCssnMmUEp-SaHtKmX66A5M7QmUSE"
 SHEET_GID            = 910794173
@@ -60,7 +61,8 @@ MODEL_SHORT = {
     "gemini-2.5-pro":     "gemini",
     "sonar (perplexity)": "sonar",
     "google-ai-overview": "serp",
-    "claude":             "claude",
+    "claude-sonnet-4-6":  "claude",
+    "claude":             "claude",  # legacy fallback
 }
 
 SERP_LOCALE = {
@@ -411,6 +413,54 @@ def call_perplexity(query: str) -> CallResult:
     )
 
 
+def _citations_claude(response) -> list[str]:
+    """Extract citation URLs from Claude's web_search tool annotations.
+
+    Claude returns citations as 'web_search_tool_result' content blocks during
+    the response, and inline 'citations' metadata on text blocks that reference them.
+    """
+    urls = []
+    for content_block in getattr(response, "content", []) or []:
+        block_type = getattr(content_block, "type", None)
+        if block_type == "text":
+            citations = getattr(content_block, "citations", None) or []
+            for citation in citations:
+                url = getattr(citation, "url", None)
+                if url:
+                    urls.append(url)
+    return list(dict.fromkeys(urls))
+
+
+def call_claude(query: str) -> CallResult:
+    from anthropic import Anthropic
+    client = Anthropic(api_key=ANTHROPIC_API_KEY)
+    response = client.messages.create(
+        model="claude-sonnet-4-6",
+        max_tokens=4096,
+        tools=[{
+            "type": "web_search_20250305",
+            "name": "web_search",
+            "max_uses": 5,
+        }],
+        messages=[{"role": "user", "content": query}],
+    )
+
+    text_parts = []
+    for block in response.content:
+        if getattr(block, "type", None) == "text":
+            text_parts.append(getattr(block, "text", "") or "")
+    text = "\n".join(text_parts)
+
+    usage = response.usage
+    return CallResult(
+        text          = text,
+        model_actual  = response.model or "claude-sonnet-4-6",
+        input_tokens  = getattr(usage, "input_tokens", 0) or 0,
+        output_tokens = getattr(usage, "output_tokens", 0) or 0,
+        citations     = _citations_claude(response),
+    )
+
+
 def _extract_serp_overview(results: dict) -> tuple[str, list[str]]:
     """Return (ai_overview_text, citation_urls) from a SerpAPI result dict."""
     text_parts: list[str] = []
@@ -497,6 +547,7 @@ MODELS = [
     ("gemini-2.5-pro",     call_gemini),
     ("sonar (perplexity)", call_perplexity),
     ("google-ai-overview", lambda q: call_serp(q, LANGUAGE)),
+    ("claude-sonnet-4-6",  call_claude),
 ]
 
 
