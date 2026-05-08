@@ -28,10 +28,9 @@ SERPAPI_KEY         = os.getenv("SERPAPI_KEY")
 ANTHROPIC_API_KEY   = os.getenv("ANTHROPIC_API_KEY")
 
 SPREADSHEET_ID       = "1ietJCNHqVp6wYyUCssnMmUEp-SaHtKmX66A5M7QmUSE"
-SHEET_GID            = 910794173
 SERVICE_ACCOUNT_FILE = pathlib.Path(__file__).parent / "service_account.json"
 RAW_OUTPUT_DIR       = pathlib.Path(__file__).parent / "Raw_Outputs"
-LANGUAGE             = "SK"
+COUNTRY              = "SK"  # "SK" or "CZ" — switches sheet tabs, domain pattern, SerpAPI geo, output dir
 
 # ── Run mode flags ────────────────────────────────────────────────────────────
 
@@ -52,9 +51,8 @@ TEST_QUERIES = [
 
 # ── Patterns & lookups ────────────────────────────────────────────────────────
 
-MK_PATTERN    = re.compile(r"modrykonik|modrý\s*koník|modrykonik\.sk", re.IGNORECASE)
-MK_DOMAIN_PAT = re.compile(r"modrykonik\.(sk|cz)", re.IGNORECASE)
-SK_CHARS      = set("ľĽšŠčČžŽýÝáÁíÍéÉúÚäÄôÔ")
+MK_PATTERN = re.compile(r"modrykonik|modrý\s*koník|modrykonik\.sk", re.IGNORECASE)
+SK_CHARS   = set("ľĽšŠčČžŽýÝáÁíÍéÉúÚäÄôÔ")
 CZ_CHARS      = set("ůě")
 
 MODEL_SHORT = {
@@ -70,6 +68,32 @@ SERP_LOCALE = {
     "SK": {"location": "Slovakia",      "hl": "sk", "gl": "sk", "google_domain": "google.sk"},
     "CZ": {"location": "Czech Republic","hl": "cs", "gl": "cz", "google_domain": "google.cz"},
 }
+
+COUNTRY_CONFIG = {
+    "SK": {
+        "queries_tab":        "Queries",
+        "log_tab":            "Log",
+        "domain_pattern":     r'modrykonik\.sk',
+        "serp_location":      "Slovakia",
+        "serp_hl":            "sk",
+        "serp_gl":            "sk",
+        "serp_domain":        "google.sk",
+        "raw_outputs_subdir": "",
+    },
+    "CZ": {
+        "queries_tab":        "Queries_CZ",
+        "log_tab":            "Log_CZ",
+        "domain_pattern":     r'modrykonik\.cz',
+        "serp_location":      "Czech Republic",
+        "serp_hl":            "cs",
+        "serp_gl":            "cz",
+        "serp_domain":        "google.cz",
+        "raw_outputs_subdir": "CZ",
+    },
+}
+
+CFG           = COUNTRY_CONFIG[COUNTRY]
+MK_DOMAIN_PAT = re.compile(CFG["domain_pattern"], re.IGNORECASE)
 
 CSV_FIELDS = [
     "query_id", "query", "model", "model_actual", "timestamp",
@@ -211,11 +235,12 @@ def save_raw_output(
     mk_pos_label: str, mk_pos_pct: float,
 ) -> pathlib.Path:
     week_tag = f"{timestamp.strftime('%Y')}-{timestamp.strftime('W%V')}"
-    week_dir = RAW_OUTPUT_DIR / week_tag
+    subdir   = CFG["raw_outputs_subdir"]
+    week_dir = RAW_OUTPUT_DIR / subdir / week_tag if subdir else RAW_OUTPUT_DIR / week_tag
     week_dir.mkdir(parents=True, exist_ok=True)
 
     qid_num   = query_id.lstrip("Q")
-    filepath  = week_dir / f"Q{qid_num}_{model_short}_{LANGUAGE}.txt"
+    filepath  = week_dir / f"Q{qid_num}_{model_short}_{COUNTRY}.txt"
     mk_pos_raw = f"{mk_pos_label} ({mk_pos_pct:.1f}%)" if mk_pos_pct >= 0 else "N/A"
 
     content = "\n".join([
@@ -225,7 +250,7 @@ def save_raw_output(
         f"query_text: {query_text}",
         f"model_requested: {model_name}",
         f"model_actual: {model_actual}",
-        f"language: {LANGUAGE}",
+        f"language: {COUNTRY}",
         f"input_tokens: {input_tokens}",
         f"output_tokens: {output_tokens}",
         f"response_length_chars: {len(text)}",
@@ -253,7 +278,7 @@ def setup_sheets():
     import gspread
     gc = gspread.service_account(filename=str(SERVICE_ACCOUNT_FILE))
     sh = gc.open_by_key(SPREADSHEET_ID)
-    ws = sh.get_worksheet_by_id(SHEET_GID)
+    ws = sh.worksheet(CFG["log_tab"])
     return sh, ws
 
 
@@ -281,7 +306,7 @@ def load_queries(
     query_set_filter: str = "",
     limit: int = 0,
 ) -> list[tuple[str, str]]:
-    ws = sh.worksheet("Queries")
+    ws = sh.worksheet(CFG["queries_tab"])
     rows = ws.get_all_values()
     # Column layout (14 cols):
     # A=ID  B=Kategória  C=Podkategória  D=Otázka_SK  E=Google_query_SK
@@ -317,13 +342,13 @@ def append_sheet_row(
     mk_value: str, mk_citation: str, mk_pos: str,
 ):
     today  = datetime.date.today().strftime("%Y-%m-%d")
-    log_id = f"L{log_num:04d}_{LANGUAGE}"
+    log_id = f"L{log_num:04d}_{COUNTRY}"
     row = [
         log_id,       # Log_ID        — Part 8: L0001_SK
         today,        # Date
         query_id,     # Query_ID
         model,        # Model
-        LANGUAGE,     # Language
+        COUNTRY,      # Language
         mk_citation,  # MK_Citation   — Part 2
         mk_value,     # MK_Mention
         "N/A",        # MK_Sentiment
@@ -529,14 +554,16 @@ def _extract_serp_overview(results: dict) -> tuple[str, list[str]]:
     return "\n".join(text_parts), list(dict.fromkeys(urls))
 
 
-def call_serp(query: str, language: str = "SK") -> CallResult:
+def call_serp(query: str) -> CallResult:
     from serpapi import GoogleSearch
-    locale = SERP_LOCALE.get(language, SERP_LOCALE["SK"])
     params = {
-        "engine":       "google",
-        "q":            query,
-        "api_key":      SERPAPI_KEY,
-        **locale,
+        "engine":        "google",
+        "q":             query,
+        "location":      CFG["serp_location"],
+        "hl":            CFG["serp_hl"],
+        "gl":            CFG["serp_gl"],
+        "google_domain": CFG["serp_domain"],
+        "api_key":       SERPAPI_KEY,
     }
     results = GoogleSearch(params).get_dict()
 
@@ -566,13 +593,14 @@ MODELS = [
     ("gpt-4o",             call_openai),
     ("gemini-2.5-pro",     call_gemini),
     ("sonar (perplexity)", call_perplexity),
-    ("google-ai-overview", lambda q: call_serp(q, LANGUAGE)),
+    ("google-ai-overview", call_serp),
     ("claude-sonnet-4-6",  call_claude),
 ]
 
 
 # ── Setup ─────────────────────────────────────────────────────────────────────
 
+print(f"Country: {COUNTRY} | Sheet tab: {CFG['queries_tab']} → {CFG['log_tab']}")
 print("Connecting to Google Sheets...", end=" ", flush=True)
 try:
     sh, ws  = setup_sheets()
@@ -607,13 +635,13 @@ try:
 
     dry_tag  = f" — DRY RUN first {DRY_RUN_LIMIT}" if DRY_RUN and not TEST_MODE else ""
     qset_tag = f" | filter: {QUERY_SET_FILTER!r}" if QUERY_SET_FILTER else ""
-    print(f"OK — last Log_ID in sheet: L{log_num - 1:04d}_{LANGUAGE} → next: L{log_num:04d}_{LANGUAGE}")
+    print(f"OK — last Log_ID in sheet: L{log_num - 1:04d}_{COUNTRY} → next: L{log_num:04d}_{COUNTRY}")
     print(f"Mode: {mode_label}{qset_tag}{skip_tag}{dry_tag} | {len(queries_data)} queries to run")
 except Exception as e:
     print(f"FAILED ({e})")
     raise SystemExit(1)
 
-active_models = [("google-ai-overview", lambda q: call_serp(q, LANGUAGE))] if SERP_ONLY else MODELS
+active_models = [("google-ai-overview", call_serp)] if SERP_ONLY else MODELS
 
 
 # ── Main loop ─────────────────────────────────────────────────────────────────
@@ -676,7 +704,7 @@ for query_id, query in queries_data:
         # Sheets
         try:
             append_sheet_row(ws, log_num, query_id, model_name, mk_value, mk_cit, mk_pos_label)
-            print(f"  Sheets:      L{log_num:04d}_{LANGUAGE} [{mk_value} / cit:{mk_cit} / pos:{mk_pos_label}]")
+            print(f"  Sheets:      L{log_num:04d}_{COUNTRY} [{mk_value} / cit:{mk_cit} / pos:{mk_pos_label}]")
             log_num += 1
         except Exception as e:
             print(f"  Sheets:      ERROR — {e}")
