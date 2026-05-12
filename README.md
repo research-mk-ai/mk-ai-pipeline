@@ -29,3 +29,5 @@ Single production server: **Mac Mini** (`doma-mac-mini` on Tailscale), accessed 
 ## Secrets
 
 `.env` (API keys) and `service_account.json` (Google Sheets) live in `secrets/` with `chmod 600`, symlinked to repo root. Both are gitignored.
+
+_Last updated: 2026-05-12_
