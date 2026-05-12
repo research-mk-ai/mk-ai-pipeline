@@ -52,8 +52,8 @@ TEST_QUERIES = [
 # ── Patterns & lookups ────────────────────────────────────────────────────────
 
 MK_PATTERN = re.compile(r"modrykonik|modrý\s*koník|modrykonik\.sk", re.IGNORECASE)
-SK_CHARS   = set("ľĽšŠčČžŽýÝáÁíÍéÉúÚäÄôÔ")
-CZ_CHARS      = set("ůě")
+SK_ONLY_CHARS = set("ľĽäÄôÔĺĹŕŔ")
+CZ_ONLY_CHARS = set("ůŮěĚřŘ")
 
 MODEL_SHORT = {
     "gpt-4o":             "gpt4o",
@@ -122,10 +122,14 @@ def detect_language(text: str) -> str:
     if not text:
         return "OTHER"
     chars = set(text)
-    if chars & SK_CHARS:
-        return "SK"
-    if chars & CZ_CHARS:
+    has_sk = bool(chars & SK_ONLY_CHARS)
+    has_cz = bool(chars & CZ_ONLY_CHARS)
+    if has_sk and has_cz:
+        return "MIXED"
+    if has_cz:
         return "CZ"
+    if has_sk:
+        return "SK"
     if sum(1 for c in text if ord(c) < 128) / len(text) > 0.95:
         return "EN"
     return "OTHER"
